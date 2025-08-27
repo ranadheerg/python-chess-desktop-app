@@ -1,9 +1,8 @@
 import copy
 class Board:
-    def get_board(self):
-        return self.board
     def __init__(self):
-        self.board = self.create_initial_board()
+        #self.board = self.create_initial_board()
+        self.reset_board()
         self.current_turn = 'white'
         self.move_history = []
 
@@ -23,16 +22,6 @@ class Board:
     def is_valid_move(self, start_pos, end_pos):
         # Implement logic to validate moves based on chess rules
         return True  # Placeholder for actual validation logic
-
-    def move_piece(self, start_pos, end_pos):
-        if self.is_valid_move(start_pos, end_pos):
-            piece = self.board[start_pos[0]][start_pos[1]]
-            self.board[end_pos[0]][end_pos[1]] = piece
-            self.board[start_pos[0]][start_pos[1]] = '.'
-            self.move_history.append((start_pos, end_pos))
-            self.switch_turn()
-        else:
-            raise ValueError("Illegal move")
 
     def switch_turn(self):
         self.current_turn = 'black' if self.current_turn == 'white' else 'white'
@@ -59,6 +48,15 @@ class Board:
         self.board = self.create_initial_board()
         self.current_turn = 'white'
         self.move_history = []
+        self.current_turn = 'white'
+        self.castling_rights = {
+            'white': {'K': True, 'Q': True},
+            'black': {'K': True, 'Q': True}
+        }
+        self.en_passant_target = None
+        self.halfmove_clock = 0
+        self.fullmove_number = 1
+        self.last_move = None
     
     def get_board(self):
         return copy.deepcopy(self.board)
@@ -67,7 +65,32 @@ class Board:
         row, col = pos
         return self.board[row][col]
 
-    def is_legal(self, start, end):
+    def is_in_check(self, color):
+        # Find king position
+        king = 'K' if color == 'white' else 'k'
+        king_pos = None
+        for r in range(8):
+            for c in range(8):
+                if self.board[r][c] == king:
+                    king_pos = (r, c)
+                    break
+            if king_pos:
+                break
+        if not king_pos:
+            # King is missing, technically checkmate, but not "in check"
+            return False
+
+        # Check if any opponent piece can attack king
+        opponent = 'black' if color == 'white' else 'white'
+        for sr in range(8):
+            for sc in range(8):
+                piece = self.board[sr][sc]
+                if (opponent == 'white' and piece.isupper()) or (opponent == 'black' and piece.islower()):
+                    if self.is_legal((sr, sc), king_pos, ignore_check=True):
+                        return True
+        return False
+
+    def is_legal(self, start, end, ignore_check=False):
         piece = self.get_piece(start)
         if piece == '.':
             return False
@@ -75,21 +98,42 @@ class Board:
             return False
         if self.current_turn == 'black' and not piece.islower():
             return False
-        if piece.upper() == 'P':
-            return self.is_legal_pawn_move(start, end)
-        elif piece.upper() == 'R':
-            return self.is_legal_rook_move(start, end)
-        elif piece.upper() == 'N':
-            return self.is_legal_knight_move(start, end)
-        elif piece.upper() == 'B':
-            return self.is_legal_bishop_move(start, end)
-        elif piece.upper() == 'Q':
-            return self.is_legal_queen_move(start, end)
-        elif piece.upper() == 'K':
-            return self.is_legal_king_move(start, end)
-        return False
 
-    def move_piece(self, start, end):
+        # Piece-specific legality
+        if piece.upper() == 'P':
+            legal = self.is_legal_pawn_move(start, end)
+        elif piece.upper() == 'R':
+            legal = self.is_legal_rook_move(start, end)
+        elif piece.upper() == 'N':
+            legal = self.is_legal_knight_move(start, end)
+        elif piece.upper() == 'B':
+            legal = self.is_legal_bishop_move(start, end)
+        elif piece.upper() == 'Q':
+            legal = self.is_legal_queen_move(start, end)
+        elif piece.upper() == 'K':
+            legal = self.is_legal_king_move(start, end)
+        else:
+            legal = False
+
+        if not legal:
+            return False
+
+        # Simulate move to check for king safety
+        if not ignore_check:
+            orig_piece = self.board[end[0]][end[1]]
+            moving_piece = self.board[start[0]][start[1]]
+            self.board[end[0]][end[1]] = moving_piece
+            self.board[start[0]][start[1]] = '.'
+            in_check = self.is_in_check(self.current_turn)
+            # Undo move
+            self.board[start[0]][start[1]] = moving_piece
+            self.board[end[0]][end[1]] = orig_piece
+            print(f"Simulating move {start}->{end}: in_check={in_check}")
+            if in_check:
+                return False
+        return True
+
+    def move_piece(self, start, end, promotion=None):
         if not self.is_legal(start, end):
             raise Exception("Illegal move")
         piece = self.get_piece(start)
@@ -113,12 +157,13 @@ class Board:
         # Move piece
         self.board[end[0]][end[1]] = piece
         self.board[start[0]][start[1]] = '.'
-        # Pawn promotion (to Queen for simplicity)
+        # Pawn promotion
         if piece.upper() == 'P':
-            if piece.isupper() and end[0] == 0:
-                self.board[end[0]][end[1]] = 'Q'
-            elif piece.islower() and end[0] == 7:
-                self.board[end[0]][end[1]] = 'q'
+            if (piece.isupper() and end[0] == 0) or (piece.islower() and end[0] == 7):
+                if promotion:
+                    self.board[end[0]][end[1]] = promotion
+                else:
+                    self.board[end[0]][end[1]] = 'Q' if piece.isupper() else 'q'
         # Update en passant target
         self.en_passant_target = None
         if piece.upper() == 'P' and abs(start[0] - end[0]) == 2:
@@ -135,6 +180,7 @@ class Board:
             if start == (0,7): self.castling_rights['black']['K'] = False
         # Update turn
         self.last_move = (start, end)
+        self.move_history.append((start, end, promotion))
         self.current_turn = 'black' if self.current_turn == 'white' else 'white'
         if self.current_turn == 'white':
             self.fullmove_number += 1
@@ -145,7 +191,9 @@ class Board:
         piece = self.get_piece(start)
         direction = -1 if piece.isupper() else 1
         start_row = 6 if piece.isupper() else 1
+        print(f"Checking pawn move from {start} to {end}, piece: {piece}")
         # Forward move
+        
         if sc == ec and self.get_piece(end) == '.':
             if er - sr == direction:
                 return True
@@ -288,4 +336,60 @@ class Board:
         start = (8 - int(move[1]), ord(move[0]) - ord('a'))
         end = (8 - int(move[3]), ord(move[2]) - ord('a'))
         self.move_piece(start, end)
+
+    def has_any_moves(self):
+        for sr in range(8):
+            for sc in range(8):
+                piece = self.board[sr][sc]
+                if self.current_turn == 'white' and piece.isupper():
+                    for er in range(8):
+                        for ec in range(8):
+                            if (sr, sc) != (er, ec):
+                                if self.is_legal((sr, sc), (er, ec)):
+                                    return True
+                elif self.current_turn == 'black' and piece.islower():
+                    for er in range(8):
+                        for ec in range(8):
+                            if (sr, sc) != (er, ec):
+                                if self.is_legal((sr, sc), (er, ec)):
+                                    return True
+        return False
     
+    def get_game_result(self):
+        flat = sum(self.board, [])
+        white_king = 'K' in flat
+        black_king = 'k' in flat
+        white_pieces = [p for p in flat if p.isupper()]
+        black_pieces = [p for p in flat if p.islower()]
+
+        # Direct stalemate: only kings remain for both sides
+        if white_pieces == ['K'] and black_pieces == ['k']:
+            return "Draw by stalemate (only kings remain)"
+
+        # 50-move rule: only king remains for current side and 50 moves passed
+        if self.current_turn == 'white' and white_pieces == ['K'] and len(self.move_history) >= 50:
+            return "Draw by 50-move rule (White king survived 50 moves)"
+        if self.current_turn == 'black' and black_pieces == ['k'] and len(self.move_history) >= 50:
+            return "Draw by 50-move rule (Black king survived 50 moves)"
+
+        # No legal moves for current player
+        if not self.has_any_moves():
+            if self.current_turn == 'white':
+                if white_king:
+                    return "Stalemate! No legal moves for White."
+                else:
+                    return "Black wins by checkmate"
+            else:
+                if black_king:
+                    return "Stalemate! No legal moves for Black."
+                else:
+                    return "White wins by checkmate"
+
+        # If a king is missing, the other side wins
+        if not white_king:
+            return "Black wins by checkmate"
+        if not black_king:
+            return "White wins by checkmate"
+
+        return None
+        
