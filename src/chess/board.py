@@ -66,7 +66,6 @@ class Board:
         return self.board[row][col]
 
     def is_in_check(self, color):
-        # Find king position
         king = 'K' if color == 'white' else 'k'
         king_pos = None
         for r in range(8):
@@ -77,17 +76,45 @@ class Board:
             if king_pos:
                 break
         if not king_pos:
-            # King is missing, technically checkmate, but not "in check"
             return False
 
-        # Check if any opponent piece can attack king
         opponent = 'black' if color == 'white' else 'white'
         for sr in range(8):
             for sc in range(8):
                 piece = self.board[sr][sc]
                 if (opponent == 'white' and piece.isupper()) or (opponent == 'black' and piece.islower()):
-                    if self.is_legal((sr, sc), king_pos, ignore_check=True):
-                        return True
+                    print(f"[DEBUG] Checking opponent piece {piece} at {(sr, sc)}")
+                    # Pawn attacks
+                    if piece.upper() == 'P':
+                        direction = -1 if piece.isupper() else 1
+                        if (sr + direction, sc - 1) == king_pos or (sr + direction, sc + 1) == king_pos:
+                            print(f"[DEBUG] King at {king_pos} is in check by pawn at {(sr, sc)}")
+                            return True
+                    # Knight attacks
+                    elif piece.upper() == 'N':
+                        if (abs(sr - king_pos[0]), abs(sc - king_pos[1])) in [(2, 1), (1, 2)]:
+                            print(f"[DEBUG] King at {king_pos} is in check by knight at {(sr, sc)}")
+                            return True
+                    # Bishop/Queen diagonal attacks
+                    if piece.upper() == 'B' or piece.upper() == 'Q':
+                        if abs(sr - king_pos[0]) == abs(sc - king_pos[1]):
+                            print(f"[DEBUG] {piece} at {(sr, sc)} is on diagonal with king at {king_pos}")
+                            if self.is_path_clear((sr, sc), king_pos):
+                                print(f"[DEBUG] King at {king_pos} is in check by {piece} at {(sr, sc)}")
+                                return True
+                    # Rook/Queen straight attacks
+                    if piece.upper() == 'R' or piece.upper() == 'Q':
+                        print(f"[DEBUG] {piece} Rook/Queen at {(sr, sc)} checking straight line to king at {king_pos}")
+                        if sr == king_pos[0] or sc == king_pos[1]:
+                            print(f"[DEBUG] {piece} at {(sr, sc)} is on straight line with king at {king_pos}")
+                            if self.is_path_clear((sr, sc), king_pos):
+                                print(f"[DEBUG] King at {king_pos} is in check by {piece} at {(sr, sc)}")
+                                return True
+                    # King attacks (should not happen, but for debug)
+                    elif piece.upper() == 'K':
+                        # A king cannot attack another king in chess rules
+                        continue
+        print(f"[DEBUG] King at {king_pos} is NOT in check for {color}")
         return False
 
     def is_legal(self, start, end, ignore_check=False):
@@ -124,6 +151,7 @@ class Board:
             moving_piece = self.board[start[0]][start[1]]
             self.board[end[0]][end[1]] = moving_piece
             self.board[start[0]][start[1]] = '.'
+            self.print_board()
             in_check = self.is_in_check(self.current_turn)
             # Undo move
             self.board[start[0]][start[1]] = moving_piece
@@ -240,6 +268,13 @@ class Board:
         sr, sc = start
         er, ec = end
         if abs(sr-er) <= 1 and abs(sc-ec) <= 1:
+            # Prevent moving next to the other king
+            for r in range(max(0, er-1), min(8, er+2)):
+                for c in range(max(0, ec-1), min(8, ec+2)):
+                    if (r, c) != (er, ec):
+                        other_king = 'k' if self.get_piece(start) == 'K' else 'K'
+                        if self.board[r][c] == other_king:
+                            return False
             return self.is_target_valid(start, end)
         # Castling
         if sr == er and abs(sc-ec) == 2:
@@ -276,10 +311,13 @@ class Board:
         step_c = (dc and (1 if dc > 0 else -1)) if dc != 0 else 0
         r, c = sr + step_r, sc + step_c
         while (r, c) != (er, ec):
+            print(f"[DEBUG] Checking path at {(r, c)}: {self.board[r][c]}")
             if self.board[r][c] != '.':
+                print(f"[DEBUG] Path blocked at {(r, c)}")
                 return False
             r += step_r
             c += step_c
+        print(f"[DEBUG] Path clear from {start} to {end}")
         return True
 
     def is_target_valid(self, start, end):
@@ -392,4 +430,8 @@ class Board:
             return "White wins by checkmate"
 
         return None
-        
+
+    def print_board(self):
+        for row in self.board:
+            print(' '.join(row))
+            
